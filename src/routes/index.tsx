@@ -7,6 +7,7 @@ import {
   type PatrimoineInput,
 } from "@/lib/analysis.types";
 import { analyserSituation } from "@/lib/patrimoine.service";
+import { supabase } from "@/integrations/supabase/client";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -50,6 +51,7 @@ function Index() {
   const [analyse, setAnalyse] = useState<AnalysePatrimoniale | null>(null);
   const [chargement, setChargement] = useState(false);
   const [erreur, setErreur] = useState<string | null>(null);
+  const [confirmation, setConfirmation] = useState<string | null>(null);
 
   const handleChange = (cle: string, valeur: string) => {
     setChamps((prev) => ({ ...prev, [cle]: valeur }));
@@ -68,9 +70,24 @@ function Index() {
 
     setChargement(true);
     setErreur(null);
+    setConfirmation(null);
     try {
+      const { error: erreurInsert } = await supabase.from("analyses").insert({
+        revenus_annuels: input.revenusAnnuels,
+        epargne: input.epargneDisponible,
+        credit_immobilier: input.montantCredit,
+        mensualite: input.mensualiteCredit,
+        objectif: input.objectif,
+      });
+      if (erreurInsert) {
+        setErreur(
+          "L'enregistrement de votre analyse a échoué. Vérifiez votre connexion puis réessayez."
+        );
+        return;
+      }
       const resultat = await analyserSituation(input);
       setAnalyse(resultat);
+      setConfirmation("Votre analyse a bien été enregistrée.");
     } catch (e) {
       setErreur(e instanceof Error ? e.message : "Une erreur est survenue.");
     } finally {
@@ -149,6 +166,12 @@ function Index() {
             {erreur && (
               <p role="alert" className="text-sm font-semibold text-destructive">
                 {erreur}
+              </p>
+            )}
+
+            {confirmation && (
+              <p role="status" className="text-sm font-semibold text-teal">
+                {confirmation}
               </p>
             )}
 
