@@ -8,3 +8,11 @@
 > Commits you push to the connected branch sync back to Lovable and show up in
 > the editor, so keep the branch in a working state.
 <!-- LOVABLE:END -->
+
+# Architecture decisions
+
+- Analysis logic lives in `src/lib/patrimoine.service.ts` behind a single entry point
+  (`analyserSituation`), with the contract types in `src/lib/analysis.types.ts`.
+  Today the service is local/mock; when Supabase + an external AI API are connected,
+  only the service body changes (persist input via createServerFn, call the AI API
+  server-side with env keys) — components must never call APIs directly.
