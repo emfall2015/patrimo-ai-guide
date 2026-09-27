@@ -87,7 +87,7 @@ function Index() {
       }
       const resultat = await analyserSituation(input);
       setAnalyse(resultat);
-      setConfirmation("Votre analyse a bien été enregistrée.");
+      setConfirmation("Analyse enregistrée avec succès.");
     } catch (e) {
       setErreur(e instanceof Error ? e.message : "Une erreur est survenue.");
     } finally {
