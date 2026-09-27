@@ -14,7 +14,39 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      analyses: {
+        Row: {
+          analyse_ia: string | null
+          created_at: string
+          credit_immobilier: number
+          epargne: number
+          id: string
+          mensualite: number
+          objectif: string
+          revenus_annuels: number
+        }
+        Insert: {
+          analyse_ia?: string | null
+          created_at?: string
+          credit_immobilier?: number
+          epargne?: number
+          id?: string
+          mensualite?: number
+          objectif: string
+          revenus_annuels: number
+        }
+        Update: {
+          analyse_ia?: string | null
+          created_at?: string
+          credit_immobilier?: number
+          epargne?: number
+          id?: string
+          mensualite?: number
+          objectif?: string
+          revenus_annuels?: number
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
