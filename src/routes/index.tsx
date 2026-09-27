@@ -59,10 +59,10 @@ function Index() {
   const handleSubmit = async (event: FormEvent) => {
     event.preventDefault();
     const input: PatrimoineInput = {
-      revenusAnnuels: Number(champs.revenusAnnuels) || 0,
-      epargneDisponible: Number(champs.epargneDisponible) || 0,
-      montantCredit: Number(champs.montantCredit) || 0,
-      mensualiteCredit: Number(champs.mensualiteCredit) || 0,
+      revenusAnnuels: Number(champs["revenusAnnuels"]) || 0,
+      epargneDisponible: Number(champs["epargneDisponible"]) || 0,
+      montantCredit: Number(champs["montantCredit"]) || 0,
+      mensualiteCredit: Number(champs["mensualiteCredit"]) || 0,
       objectif,
     };
 
