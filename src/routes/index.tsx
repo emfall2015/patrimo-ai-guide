@@ -120,7 +120,7 @@ function Index() {
                 <input
                   type="number"
                   min={0}
-                  step={100}
+                  step="any"
                   inputMode="numeric"
                   placeholder={champ.placeholder}
                   value={champs[champ.cle]}
