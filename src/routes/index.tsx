@@ -219,6 +219,9 @@ function Index() {
                   Points d'attention
                 </h3>
                 <ul className="mt-2 grid gap-2 text-sm text-cream/80">
+                  {analyse.pointsAttention.length === 0 && (
+                    <li className="flex gap-2">Aucun point d'attention identifié pour cette analyse.</li>
+                  )}
                   {analyse.pointsAttention.map((point) => (
                     <li key={point} className="flex gap-2">
                       <span className="mt-2 size-1.5 shrink-0 rounded-full bg-mustard" aria-hidden />
