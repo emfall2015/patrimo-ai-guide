@@ -8,6 +8,7 @@ import {
 } from "@/lib/analysis.types";
 import { analyserSituation } from "@/lib/patrimoine.service";
 import { supabase } from "@/integrations/supabase/client";
+import { envoyerAnalyseAuWebhook } from "@/lib/webhook.functions";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -52,6 +53,7 @@ function Index() {
   const [chargement, setChargement] = useState(false);
   const [erreur, setErreur] = useState<string | null>(null);
   const [confirmation, setConfirmation] = useState<string | null>(null);
+  const [webhook, setWebhook] = useState<{ ok: boolean; texte: string } | null>(null);
 
   const handleChange = (cle: string, valeur: string) => {
     setChamps((prev) => ({ ...prev, [cle]: valeur }));
@@ -71,6 +73,7 @@ function Index() {
     setChargement(true);
     setErreur(null);
     setConfirmation(null);
+    setWebhook(null);
     try {
       // Insertion réelle dans la table "analyses" (Supabase).
       // On récupère et vérifie explicitement la variable "error" renvoyée
@@ -92,6 +95,27 @@ function Index() {
       const resultat = await analyserSituation(input);
       setAnalyse(resultat);
       setConfirmation("Analyse enregistrée avec succès.");
+
+      // Envoi des mêmes données au webhook n8n (format JSON attendu par n8n).
+      const statutWebhook = await envoyerAnalyseAuWebhook({
+        data: {
+          revenus_annuels: input.revenusAnnuels,
+          epargne: input.epargneDisponible,
+          credit_immobilier: input.montantCredit,
+          mensualite: input.mensualiteCredit,
+          objectif: input.objectif,
+        },
+      });
+      setWebhook(
+        statutWebhook.ok
+          ? { ok: true, texte: "Requête envoyée au serveur d'analyse : succès." }
+          : {
+              ok: false,
+              texte: `Échec de l'envoi au serveur d'analyse${
+                statutWebhook.statut ? ` (code ${statutWebhook.statut})` : ""
+              }.`,
+            }
+      );
     } catch (e) {
       console.error("Erreur inattendue lors de l'enregistrement :", e);
       setErreur("Erreur lors de l'enregistrement");
@@ -180,6 +204,15 @@ function Index() {
             {confirmation && (
               <p role="status" className="text-sm font-semibold text-teal">
                 {confirmation}
+              </p>
+            )}
+
+            {webhook && (
+              <p
+                role={webhook.ok ? "status" : "alert"}
+                className={`text-sm font-semibold ${webhook.ok ? "text-teal" : "text-destructive"}`}
+              >
+                {webhook.texte}
               </p>
             )}
 
