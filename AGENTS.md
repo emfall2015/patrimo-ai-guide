@@ -16,3 +16,7 @@
   Today the service is local/mock; when Supabase + an external AI API are connected,
   only the service body changes (persist input via createServerFn, call the AI API
   server-side with env keys) — components must never call APIs directly.
+- Outbound HTTP to n8n goes through `src/lib/webhook.functions.ts` (a `createServerFn`
+  that POSTs the JSON payload and returns `{ ok, statut, message }`). Why: the n8n
+  webhook sends no CORS headers, so a browser-side `fetch` would be blocked; the
+  server fetch is not subject to CORS. Components only read the returned status.
