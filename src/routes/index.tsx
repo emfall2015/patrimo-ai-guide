@@ -188,7 +188,7 @@ function Index() {
               {chargement ? "Analyse en cours…" : "Analyser ma situation"}
             </button>
             <p className="text-center text-[11px] text-muted-foreground">
-              Données traitées localement · aucune information transmise.
+              Vos données sont enregistrées de manière sécurisée pour générer votre analyse.
             </p>
           </form>
         </section>
