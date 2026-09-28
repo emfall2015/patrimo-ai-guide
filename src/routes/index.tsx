@@ -72,6 +72,9 @@ function Index() {
     setErreur(null);
     setConfirmation(null);
     try {
+      // Insertion réelle dans la table "analyses" (Supabase).
+      // On récupère et vérifie explicitement la variable "error" renvoyée
+      // par le client Supabase : le succès n'est affirmé QUE si error est null.
       const { error: erreurInsert } = await supabase.from("analyses").insert({
         revenus_annuels: input.revenusAnnuels,
         epargne: input.epargneDisponible,
@@ -80,16 +83,18 @@ function Index() {
         objectif: input.objectif,
       });
       if (erreurInsert) {
-        setErreur(
-          "L'enregistrement de votre analyse a échoué. Vérifiez votre connexion puis réessayez."
-        );
-        return;
+        console.error("Erreur d'insertion Supabase :", erreurInsert.message);
+        setErreur("Erreur lors de l'enregistrement");
+        return; // Aucun message de succès en cas d'erreur.
       }
+      // Insertion réellement réussie : on affiche le succès et on vide le formulaire.
+      setChamps({ revenusAnnuels: "", epargneDisponible: "", montantCredit: "", mensualiteCredit: "" });
       const resultat = await analyserSituation(input);
       setAnalyse(resultat);
       setConfirmation("Analyse enregistrée avec succès.");
     } catch (e) {
-      setErreur(e instanceof Error ? e.message : "Une erreur est survenue.");
+      console.error("Erreur inattendue lors de l'enregistrement :", e);
+      setErreur("Erreur lors de l'enregistrement");
     } finally {
       setChargement(false);
     }
@@ -269,8 +274,8 @@ function Index() {
               </div>
 
               <p className="mt-5 max-w-[46ch] text-[11px] leading-relaxed text-cream/40">
-                Données fictives à des fins de démonstration. Aucune API IA ni base de données
-                n'est encore connectée.
+                Chaque analyse est enregistrée dans la base de données, puis complétée
+                par l'IA.
               </p>
             </div>
           )}
