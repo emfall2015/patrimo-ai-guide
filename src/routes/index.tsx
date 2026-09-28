@@ -1,4 +1,4 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import { useState, type FormEvent } from "react";
 import {
   OBJECTIFS_PATRIMONIAUX,
@@ -108,9 +108,12 @@ function Index() {
           <span className="size-3 rounded-full bg-primary ring-4 ring-primary/20" aria-hidden />
           Assistant Patrimoine IA
         </span>
-        <span className="hidden text-sm font-medium text-muted-foreground sm:inline">
-          Version 0.1 · démo locale
-        </span>
+        <Link
+          to="/analyses"
+          className="text-sm font-medium text-muted-foreground underline-offset-4 hover:underline"
+        >
+          Voir les analyses enregistrées
+        </Link>
       </header>
 
       {/* Héros */}
