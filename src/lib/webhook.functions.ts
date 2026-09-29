@@ -124,6 +124,9 @@ function extraireAnalyse(corps: string): AnalysePatrimoniale | null {
         );
         if (champTexte) return decouperSections(source[champTexte] as string);
       }
+      // JSON sans contenu d'analyse exploitable (ex. accusé de réception
+      // « Demande reçue, analyse en cours ») : ce n'est pas une analyse.
+      return null;
     } catch {
       // Pas du JSON valide : on traite comme du texte brut.
     }
