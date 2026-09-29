@@ -11,7 +11,8 @@ import { z } from "zod";
  * Contrat volontairement identique au JSON attendu par n8n.
  */
 
-const URL_WEBHOOK = "https://emfall2015.app.n8n.cloud/webhook-test/analyse-patrimoine";
+// URL de PRODUCTION du webhook n8n (le scénario doit être "Actif" pour répondre).
+const URL_WEBHOOK = "https://emfall2015.app.n8n.cloud/webhook/analyse-patrimoine";
 
 const EntreeWebhookSchema = z.object({
   revenus_annuels: z.number(),
