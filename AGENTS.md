@@ -17,6 +17,10 @@
   only the service body changes (persist input via createServerFn, call the AI API
   server-side with env keys) — components must never call APIs directly.
 - Outbound HTTP to n8n goes through `src/lib/webhook.functions.ts` (a `createServerFn`
-  that POSTs the JSON payload and returns `{ ok, statut, message }`). Why: the n8n
+  that POSTs the JSON payload and returns `{ ok, statut, message, analyse }`). Why: the n8n
   webhook sends no CORS headers, so a browser-side `fetch` would be blocked; the
   server fetch is not subject to CORS. Components only read the returned status.
+  When n8n responds with analysis content (structured JSON, a text field like
+  `output`/`reponse`, or free text with standard sections), the server extracts it
+  as an `AnalysePatrimoniale` and the UI displays it; otherwise the UI falls back
+  to the local mock analysis.
