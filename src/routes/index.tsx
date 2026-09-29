@@ -92,9 +92,6 @@ function Index() {
       }
       // Insertion réellement réussie : on affiche le succès et on vide le formulaire.
       setChamps({ revenusAnnuels: "", epargneDisponible: "", montantCredit: "", mensualiteCredit: "" });
-      const resultat = await analyserSituation(input);
-      setAnalyse(resultat);
-      setConfirmation("Analyse enregistrée avec succès.");
 
       // Envoi des mêmes données au webhook n8n (format JSON attendu par n8n).
       const statutWebhook = await envoyerAnalyseAuWebhook({
@@ -106,6 +103,17 @@ function Index() {
           objectif: input.objectif,
         },
       });
+
+      // Résultats de l'analyse : priorité à l'analyse renvoyée par n8n,
+      // sinon on retombe sur l'analyse locale (mock).
+      if (statutWebhook.ok && statutWebhook.analyse) {
+        setAnalyse(statutWebhook.analyse);
+      } else {
+        const resultat = await analyserSituation(input);
+        setAnalyse(resultat);
+      }
+      setConfirmation("Analyse enregistrée avec succès.");
+
       setWebhook(
         statutWebhook.ok
           ? { ok: true, texte: "Requête envoyée au serveur d'analyse : succès." }
