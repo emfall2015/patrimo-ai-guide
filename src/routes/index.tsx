@@ -1,12 +1,18 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useState, useEffect, useRef, type FormEvent } from "react";
+import { useState, useRef, useEffect, type FormEvent } from "react";
+import { createClient } from "@supabase/supabase-js";
 import {
   OBJECTIFS_PATRIMONIAUX,
   type ObjectifPatrimonial,
   type PatrimoineInput,
 } from "@/lib/analysis.types";
-import { supabase } from "@/integrations/supabase/client";
 import { envoyerAnalyseAuWebhook } from "@/lib/webhook.functions";
+
+// Connexion directe à votre projet Supabase personnel
+const supabasePerso = createClient(
+  "https://pxknpsmdopdqzkitvmdt.supabase.co",
+  "sb_publishable_OGlFSwMbsAvlITLSbCqkDw_2lxTKazF"
+);
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -40,8 +46,8 @@ const CHAMPS_NOMBRE = [
 ] as const;
 
 /**
- * Composant de rendu Markdown sans dépendance externe :
- * gère les titres (#, ##, ###), le gras (**texte**), les listes à puces et les sauts de ligne.
+ * Rendu du Markdown généré par l'IA :
+ * titres (#, ##, ###), texte en gras (**gras**), listes à puces.
  */
 function RenduMarkdown({ contenu }: { contenu: string }) {
   const lignes = contenu.split("\n");
@@ -51,7 +57,7 @@ function RenduMarkdown({ contenu }: { contenu: string }) {
   const viderListe = (clef: string) => {
     if (bufferListe.length > 0) {
       elements.push(
-        <ul key={clef} className="my-2 grid gap-1.5 pl-4 text-cream/85">
+        <ul key={clef} className="my-2 grid gap-1.5 pl-2 text-cream/85">
           {bufferListe.map((item, idx) => (
             <li key={idx} className="flex items-start gap-2 text-sm leading-relaxed">
               <span className="mt-2 size-1.5 shrink-0 rounded-full bg-teal" aria-hidden />
@@ -157,11 +163,11 @@ function Index() {
     setErreur(null);
   };
 
-  const demarrerPolling = (idAnalyse: string) => {
+  const demarrerPolling = (idAttendu?: string | number | null) => {
     arreterPolling();
     setEnAttenteIA(true);
     setMessageTimeout(null);
-    let compteur = 40; // 40 tentatives * 3s = 120s (2 minutes)
+    let compteur = 40; // 40 x 3s = 120s (2 minutes)
     setTentativesRestantes(compteur);
 
     pollingRef.current = setInterval(async () => {
@@ -169,31 +175,34 @@ function Index() {
       setTentativesRestantes(compteur);
 
       try {
-        // Lecture directe de la colonne analyse_ia pour l'enregistrement
-        const { data, error } = await supabase
+        let requete = supabasePerso
           .from("analyses")
-          .select("analyse_ia")
-          .eq("id", idAnalyse)
-          .maybeSingle();
+          .select("id, analyse_ia, created_at");
+
+        if (idAttendu !== undefined && idAttendu !== null) {
+          requete = requete.eq("id", idAttendu);
+        } else {
+          requete = requete.order("created_at", { ascending: false }).limit(1);
+        }
+
+        const { data, error } = await requete.maybeSingle();
 
         if (error) {
-          console.warn("Erreur temporaire de lecture Supabase :", error.message);
+          console.warn("Vérification temporaire Supabase :", error.message);
         } else if (data?.analyse_ia && data.analyse_ia.trim().length > 0) {
-          // L'analyse a été complétée par n8n dans la base !
           setAnalyseMarkdown(data.analyse_ia.trim());
           setEnAttenteIA(false);
           arreterPolling();
           return;
         }
 
-        // Si 2 minutes écoulées sans analyse
         if (compteur <= 0) {
           arreterPolling();
           setEnAttenteIA(false);
           setMessageTimeout("L'analyse prend plus de temps que prévu, veuillez réessayer plus tard.");
         }
       } catch (err) {
-        console.error("Erreur lors de la vérification de l'analyse :", err);
+        console.error("Erreur lors de la vérification :", err);
       }
     }, 3000);
   };
@@ -216,27 +225,7 @@ function Index() {
     arreterPolling();
 
     try {
-      // 1. Insertion de la demande dans la table "analyses" de Supabase
-      const { data: ligneCreee, error: erreurInsert } = await supabase
-        .from("analyses")
-        .insert({
-          revenus_annuels: input.revenusAnnuels,
-          epargne: input.epargneDisponible,
-          credit_immobilier: input.montantCredit,
-          mensualite: input.mensualiteCredit,
-          objectif: input.objectif,
-        })
-        .select("id")
-        .single();
-
-      if (erreurInsert || !ligneCreee?.id) {
-        console.error("Erreur d'insertion Supabase :", erreurInsert?.message);
-        setErreur("Erreur lors de l'enregistrement de votre dossier.");
-        setChargementEnvoi(false);
-        return;
-      }
-
-      // 2. Appel POST vers le webhook n8n
+      // Envoi direct vers n8n qui se charge de créer la ligne et d'appeler l'IA
       const reponseWebhook = await envoyerAnalyseAuWebhook({
         data: {
           revenus_annuels: input.revenusAnnuels,
@@ -247,27 +236,29 @@ function Index() {
         },
       });
 
-      // Erreur seulement si l'appel échoue vraiment (erreur réseau ou HTTP != 200)
       if (!reponseWebhook.ok) {
-        console.error("Échec de l'appel au webhook n8n :", reponseWebhook.statut, reponseWebhook.message);
-        setErreur(`Échec de la communication avec le serveur d'analyse${reponseWebhook.statut ? ` (code ${reponseWebhook.statut})` : ""}.`);
+        console.error("Erreur du serveur d'analyse :", reponseWebhook.statut, reponseWebhook.message);
+        setErreur(
+          `Échec de la communication avec le serveur d'analyse${
+            reponseWebhook.statut ? ` (code ${reponseWebhook.statut})` : ""
+          }.`
+        );
         setChargementEnvoi(false);
         return;
       }
 
-      // Succès : réinitialisation du formulaire
       setChamps({
         revenusAnnuels: "",
         epargneDisponible: "",
         montantCredit: "",
         mensualiteCredit: "",
       });
-      setConfirmation("Dossier envoyé avec succès. Analyse en cours…");
+      setConfirmation("Dossier envoyé avec succès. Analyse IA en cours…");
 
-      // 3. Déclenchement de la surveillance de la table Supabase
-      demarrerPolling(ligneCreee.id);
+      // Surveillance de votre Supabase (avec l'identifiant renvoyé par n8n si disponible)
+      demarrerPolling(reponseWebhook.id);
     } catch (e) {
-      console.error("Erreur inattendue lors de la soumission :", e);
+      console.error("Erreur lors de l'envoi :", e);
       setErreur("Une erreur est survenue lors de l'envoi.");
     } finally {
       setChargementEnvoi(false);
@@ -276,7 +267,6 @@ function Index() {
 
   return (
     <div className="min-h-screen bg-background text-foreground font-sans">
-      {/* En-tête */}
       <header className="flex items-center justify-between px-6 py-6 sm:px-10">
         <span className="inline-flex items-center gap-2 font-semibold">
           <span className="size-3 rounded-full bg-primary ring-4 ring-primary/20" aria-hidden />
@@ -290,7 +280,6 @@ function Index() {
         </Link>
       </header>
 
-      {/* Héros */}
       <section className="mx-auto max-w-6xl px-6 pt-6 pb-4 sm:px-10">
         <p className="text-[10px] font-bold uppercase tracking-[0.22em] text-primary">
           Analyse patrimoniale assistée par l'IA
@@ -303,13 +292,12 @@ function Index() {
         </p>
       </section>
 
-      {/* Formulaire + analyse */}
       <main className="mx-auto grid max-w-6xl gap-6 px-6 pb-20 sm:px-10 lg:grid-cols-[1.05fr_1fr]">
         {/* Formulaire */}
         <section className="rounded-[32px] bg-card p-6 ring-1 ring-black/5 sm:p-8">
           <h2 className="font-display text-2xl font-bold">Votre dossier</h2>
           <p className="mt-1 text-sm text-muted-foreground">
-            Renseignez vos chiffres — vos données sont traitées de manière sécurisée.
+            Renseignez vos informations financières pour lancer l'analyse.
           </p>
 
           <form onSubmit={handleSubmit} className="mt-6 grid gap-4">
@@ -362,20 +350,13 @@ function Index() {
               disabled={chargementEnvoi || enAttenteIA}
               className="mt-2 inline-flex items-center justify-center gap-2 rounded-full bg-primary px-8 py-4 text-base font-bold text-primary-foreground ring-1 ring-primary/40 transition-transform hover:scale-[1.01] active:scale-[0.99] disabled:cursor-wait disabled:opacity-70"
             >
-              {chargementEnvoi
-                ? "Envoi du dossier…"
-                : enAttenteIA
-                  ? "Analyse en cours par l'IA…"
-                  : "Analyser ma situation"}
+              {chargementEnvoi || enAttenteIA ? "Analyse en cours…" : "Analyser ma situation"}
             </button>
-            <p className="text-center text-[11px] text-muted-foreground">
-              Vos données sont enregistrées dans la base puis analysées par l'IA.
-            </p>
           </form>
         </section>
 
-        {/* Analyse IA */}
-        <section className="rounded-[32px] bg-dossier p-6 text-dossier-foreground ring-1 ring-black/5 sm:p-8 flex flex-col">
+        {/* Carte Analyse IA */}
+        <section className="flex flex-col rounded-[32px] bg-dossier p-6 text-dossier-foreground ring-1 ring-black/5 sm:p-8">
           <div className="flex items-center justify-between text-[10px] font-bold uppercase tracking-[0.2em] text-cream/60">
             <span className="flex items-center gap-2">
               <span
@@ -391,7 +372,6 @@ function Index() {
             )}
           </div>
 
-          {/* État initial : vide */}
           {!analyseMarkdown && !enAttenteIA && !messageTimeout && (
             <div className="mt-6 grid flex-1 place-items-center rounded-2xl border border-dashed border-white/15 p-10 text-center">
               <p className="text-sm leading-relaxed text-cream/50">
@@ -402,7 +382,6 @@ function Index() {
             </div>
           )}
 
-          {/* État en cours : attente de n8n / Gemini */}
           {enAttenteIA && (
             <div className="mt-6 flex flex-1 flex-col justify-center rounded-2xl border border-white/10 bg-white/5 p-8 text-center" aria-live="polite">
               <div className="mx-auto mb-4 size-10 animate-spin rounded-full border-2 border-primary border-t-transparent" />
@@ -420,16 +399,12 @@ function Index() {
             </div>
           )}
 
-          {/* Délai dépassé (> 2 minutes) */}
           {messageTimeout && !analyseMarkdown && (
             <div className="mt-6 rounded-2xl border border-mustard/30 bg-mustard/10 p-6 text-center" role="alert">
-              <p className="text-sm font-medium text-mustard">
-                {messageTimeout}
-              </p>
+              <p className="text-sm font-medium text-mustard">{messageTimeout}</p>
             </div>
           )}
 
-          {/* Affichage du résultat final Markdown */}
           {analyseMarkdown && (
             <div className="mt-4 flex-1 overflow-y-auto pr-1" aria-live="polite">
               <div className="rounded-2xl bg-white/5 p-5 ring-1 ring-white/10">
