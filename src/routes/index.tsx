@@ -50,6 +50,7 @@ function Index() {
   });
   const [objectif, setObjectif] = useState<ObjectifPatrimonial>(OBJECTIFS_PATRIMONIAUX[0]);
   const [analyse, setAnalyse] = useState<AnalysePatrimoniale | null>(null);
+  const [analyseEnCours, setAnalyseEnCours] = useState(false);
   const [chargement, setChargement] = useState(false);
   const [erreur, setErreur] = useState<string | null>(null);
   const [confirmation, setConfirmation] = useState<string | null>(null);
@@ -73,6 +74,7 @@ function Index() {
     setChargement(true);
     setErreur(null);
     setConfirmation(null);
+    setAnalyseEnCours(false);
     setWebhook(null);
     try {
       // Insertion réelle dans la table "analyses" (Supabase).
@@ -92,9 +94,6 @@ function Index() {
       }
       // Insertion réellement réussie : on affiche le succès et on vide le formulaire.
       setChamps({ revenusAnnuels: "", epargneDisponible: "", montantCredit: "", mensualiteCredit: "" });
-      const resultat = await analyserSituation(input);
-      setAnalyse(resultat);
-      setConfirmation("Analyse enregistrée avec succès.");
 
       // Envoi des mêmes données au webhook n8n (format JSON attendu par n8n).
       const statutWebhook = await envoyerAnalyseAuWebhook({
@@ -106,6 +105,22 @@ function Index() {
           objectif: input.objectif,
         },
       });
+
+      // Résultats de l'analyse : priorité à l'analyse renvoyée par n8n,
+      // sinon on retombe sur l'analyse locale (mock).
+      if (statutWebhook.ok && statutWebhook.analyse) {
+        setAnalyse(statutWebhook.analyse);
+      } else if (statutWebhook.ok) {
+        // n8n a reçu la demande mais répond « analyse en cours » :
+        // pas encore de résultat à afficher.
+        setAnalyse(null);
+        setAnalyseEnCours(true);
+      } else {
+        const resultat = await analyserSituation(input);
+        setAnalyse(resultat);
+      }
+      setConfirmation("Analyse enregistrée avec succès.");
+
       setWebhook(
         statutWebhook.ok
           ? { ok: true, texte: "Requête envoyée au serveur d'analyse : succès." }
@@ -236,12 +251,22 @@ function Index() {
             Analyse IA
           </div>
 
-          {!analyse && !chargement && (
+          {!analyse && !chargement && !analyseEnCours && (
             <div className="mt-6 grid flex-1 place-items-center rounded-2xl border border-dashed border-white/15 p-10 text-center">
               <p className="text-sm leading-relaxed text-cream/50">
                 Votre analyse apparaîtra ici.
                 <br />
                 Renseignez le formulaire puis lancez l'analyse.
+              </p>
+            </div>
+          )}
+
+          {analyseEnCours && !chargement && (
+            <div className="mt-6 grid flex-1 place-items-center rounded-2xl border border-dashed border-white/15 p-10 text-center">
+              <p className="text-sm leading-relaxed text-cream/50">
+                Demande envoyée au serveur d'analyse : traitement en cours.
+                <br />
+                Le résultat s'affichera ici dès qu'il sera disponible.
               </p>
             </div>
           )}
