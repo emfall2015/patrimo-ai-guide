@@ -1,12 +1,10 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useState, type FormEvent } from "react";
+import { useState, useEffect, useRef, type FormEvent } from "react";
 import {
   OBJECTIFS_PATRIMONIAUX,
-  type AnalysePatrimoniale,
   type ObjectifPatrimonial,
   type PatrimoineInput,
 } from "@/lib/analysis.types";
-import { analyserSituation } from "@/lib/patrimoine.service";
 import { supabase } from "@/integrations/supabase/client";
 import { envoyerAnalyseAuWebhook } from "@/lib/webhook.functions";
 
@@ -17,7 +15,7 @@ export const Route = createFileRoute("/")({
       {
         name: "description",
         content:
-          "Saisissez vos revenus, votre épargne et votre crédit pour obtenir une analyse patrimoniale générée par l'IA : résumé, points forts, points d'attention et recommandations.",
+          "Saisissez vos revenus, votre épargne et votre crédit pour obtenir une analyse patrimoniale générée par l'IA.",
       },
       {
         property: "og:title",
@@ -41,6 +39,90 @@ const CHAMPS_NOMBRE = [
   { cle: "mensualiteCredit", label: "Mensualité du crédit (€)", placeholder: "1 420" },
 ] as const;
 
+/**
+ * Composant de rendu Markdown sans dépendance externe :
+ * gère les titres (#, ##, ###), le gras (**texte**), les listes à puces et les sauts de ligne.
+ */
+function RenduMarkdown({ contenu }: { contenu: string }) {
+  const lignes = contenu.split("\n");
+  const elements: React.ReactNode[] = [];
+  let bufferListe: string[] = [];
+
+  const viderListe = (clef: string) => {
+    if (bufferListe.length > 0) {
+      elements.push(
+        <ul key={clef} className="my-2 grid gap-1.5 pl-4 text-cream/85">
+          {bufferListe.map((item, idx) => (
+            <li key={idx} className="flex items-start gap-2 text-sm leading-relaxed">
+              <span className="mt-2 size-1.5 shrink-0 rounded-full bg-teal" aria-hidden />
+              <span>{rendreGras(item)}</span>
+            </li>
+          ))}
+        </ul>
+      );
+      bufferListe = [];
+    }
+  };
+
+  const rendreGras = (texte: string) => {
+    const parties = texte.split(/(\*\*[^*]+\*\*)/g);
+    return parties.map((partie, i) => {
+      if (partie.startsWith("**") && partie.endsWith("**")) {
+        return (
+          <strong key={i} className="font-semibold text-cream">
+            {partie.slice(2, -2)}
+          </strong>
+        );
+      }
+      return partie;
+    });
+  };
+
+  lignes.forEach((brut, index) => {
+    const ligne = brut.trim();
+    if (!ligne) {
+      viderListe(`liste-vide-${index}`);
+      return;
+    }
+
+    if (ligne.startsWith("### ")) {
+      viderListe(`liste-h3-${index}`);
+      elements.push(
+        <h4 key={index} className="mt-4 text-sm font-bold uppercase tracking-wider text-mustard">
+          {rendreGras(ligne.replace(/^###\s+/, ""))}
+        </h4>
+      );
+    } else if (ligne.startsWith("## ")) {
+      viderListe(`liste-h2-${index}`);
+      elements.push(
+        <h3 key={index} className="mt-5 text-base font-bold text-coral">
+          {rendreGras(ligne.replace(/^##\s+/, ""))}
+        </h3>
+      );
+    } else if (ligne.startsWith("# ")) {
+      viderListe(`liste-h1-${index}`);
+      elements.push(
+        <h2 key={index} className="mt-6 font-display text-lg font-bold text-cream">
+          {rendreGras(ligne.replace(/^#\s+/, ""))}
+        </h2>
+      );
+    } else if (/^[-*•]\s+/.test(ligne)) {
+      bufferListe.push(ligne.replace(/^[-*•]\s+/, ""));
+    } else {
+      viderListe(`liste-p-${index}`);
+      elements.push(
+        <p key={index} className="mt-2 text-sm leading-relaxed text-cream/80">
+          {rendreGras(ligne)}
+        </p>
+      );
+    }
+  });
+
+  viderListe("liste-finale");
+
+  return <div className="space-y-1">{elements}</div>;
+}
+
 function Index() {
   const [champs, setChamps] = useState<Record<string, string>>({
     revenusAnnuels: "",
@@ -49,16 +131,71 @@ function Index() {
     mensualiteCredit: "",
   });
   const [objectif, setObjectif] = useState<ObjectifPatrimonial>(OBJECTIFS_PATRIMONIAUX[0]);
-  const [analyse, setAnalyse] = useState<AnalysePatrimoniale | null>(null);
-  const [analyseEnCours, setAnalyseEnCours] = useState(false);
-  const [chargement, setChargement] = useState(false);
+  const [analyseMarkdown, setAnalyseMarkdown] = useState<string | null>(null);
+  const [enAttenteIA, setEnAttenteIA] = useState(false);
+  const [tentativesRestantes, setTentativesRestantes] = useState(40);
+  const [messageTimeout, setMessageTimeout] = useState<string | null>(null);
+  const [chargementEnvoi, setChargementEnvoi] = useState(false);
   const [erreur, setErreur] = useState<string | null>(null);
   const [confirmation, setConfirmation] = useState<string | null>(null);
-  const [webhook, setWebhook] = useState<{ ok: boolean; texte: string } | null>(null);
+
+  const pollingRef = useRef<NodeJS.Timeout | null>(null);
+
+  const arreterPolling = () => {
+    if (pollingRef.current) {
+      clearInterval(pollingRef.current);
+      pollingRef.current = null;
+    }
+  };
+
+  useEffect(() => {
+    return () => arreterPolling();
+  }, []);
 
   const handleChange = (cle: string, valeur: string) => {
     setChamps((prev) => ({ ...prev, [cle]: valeur }));
     setErreur(null);
+  };
+
+  const demarrerPolling = (idAnalyse: string) => {
+    arreterPolling();
+    setEnAttenteIA(true);
+    setMessageTimeout(null);
+    let compteur = 40; // 40 tentatives * 3s = 120s (2 minutes)
+    setTentativesRestantes(compteur);
+
+    pollingRef.current = setInterval(async () => {
+      compteur -= 1;
+      setTentativesRestantes(compteur);
+
+      try {
+        // Lecture directe de la colonne analyse_ia pour l'enregistrement
+        const { data, error } = await supabase
+          .from("analyses")
+          .select("analyse_ia")
+          .eq("id", idAnalyse)
+          .maybeSingle();
+
+        if (error) {
+          console.warn("Erreur temporaire de lecture Supabase :", error.message);
+        } else if (data?.analyse_ia && data.analyse_ia.trim().length > 0) {
+          // L'analyse a été complétée par n8n dans la base !
+          setAnalyseMarkdown(data.analyse_ia.trim());
+          setEnAttenteIA(false);
+          arreterPolling();
+          return;
+        }
+
+        // Si 2 minutes écoulées sans analyse
+        if (compteur <= 0) {
+          arreterPolling();
+          setEnAttenteIA(false);
+          setMessageTimeout("L'analyse prend plus de temps que prévu, veuillez réessayer plus tard.");
+        }
+      } catch (err) {
+        console.error("Erreur lors de la vérification de l'analyse :", err);
+      }
+    }, 3000);
   };
 
   const handleSubmit = async (event: FormEvent) => {
@@ -71,32 +208,36 @@ function Index() {
       objectif,
     };
 
-    setChargement(true);
+    setChargementEnvoi(true);
     setErreur(null);
     setConfirmation(null);
-    setAnalyseEnCours(false);
-    setWebhook(null);
-    try {
-      // Insertion réelle dans la table "analyses" (Supabase).
-      // On récupère et vérifie explicitement la variable "error" renvoyée
-      // par le client Supabase : le succès n'est affirmé QUE si error est null.
-      const { error: erreurInsert } = await supabase.from("analyses").insert({
-        revenus_annuels: input.revenusAnnuels,
-        epargne: input.epargneDisponible,
-        credit_immobilier: input.montantCredit,
-        mensualite: input.mensualiteCredit,
-        objectif: input.objectif,
-      });
-      if (erreurInsert) {
-        console.error("Erreur d'insertion Supabase :", erreurInsert.message);
-        setErreur("Erreur lors de l'enregistrement");
-        return; // Aucun message de succès en cas d'erreur.
-      }
-      // Insertion réellement réussie : on affiche le succès et on vide le formulaire.
-      setChamps({ revenusAnnuels: "", epargneDisponible: "", montantCredit: "", mensualiteCredit: "" });
+    setMessageTimeout(null);
+    setAnalyseMarkdown(null);
+    arreterPolling();
 
-      // Envoi des mêmes données au webhook n8n (format JSON attendu par n8n).
-      const statutWebhook = await envoyerAnalyseAuWebhook({
+    try {
+      // 1. Insertion de la demande dans la table "analyses" de Supabase
+      const { data: ligneCreee, error: erreurInsert } = await supabase
+        .from("analyses")
+        .insert({
+          revenus_annuels: input.revenusAnnuels,
+          epargne: input.epargneDisponible,
+          credit_immobilier: input.montantCredit,
+          mensualite: input.mensualiteCredit,
+          objectif: input.objectif,
+        })
+        .select("id")
+        .single();
+
+      if (erreurInsert || !ligneCreee?.id) {
+        console.error("Erreur d'insertion Supabase :", erreurInsert?.message);
+        setErreur("Erreur lors de l'enregistrement de votre dossier.");
+        setChargementEnvoi(false);
+        return;
+      }
+
+      // 2. Appel POST vers le webhook n8n
+      const reponseWebhook = await envoyerAnalyseAuWebhook({
         data: {
           revenus_annuels: input.revenusAnnuels,
           epargne: input.epargneDisponible,
@@ -106,36 +247,30 @@ function Index() {
         },
       });
 
-      // Résultats de l'analyse : priorité à l'analyse renvoyée par n8n,
-      // sinon on retombe sur l'analyse locale (mock).
-      if (statutWebhook.ok && statutWebhook.analyse) {
-        setAnalyse(statutWebhook.analyse);
-      } else if (statutWebhook.ok) {
-        // n8n a reçu la demande mais répond « analyse en cours » :
-        // pas encore de résultat à afficher.
-        setAnalyse(null);
-        setAnalyseEnCours(true);
-      } else {
-        const resultat = await analyserSituation(input);
-        setAnalyse(resultat);
+      // Erreur seulement si l'appel échoue vraiment (erreur réseau ou HTTP != 200)
+      if (!reponseWebhook.ok) {
+        console.error("Échec de l'appel au webhook n8n :", reponseWebhook.statut, reponseWebhook.message);
+        setErreur(`Échec de la communication avec le serveur d'analyse${reponseWebhook.statut ? ` (code ${reponseWebhook.statut})` : ""}.`);
+        setChargementEnvoi(false);
+        return;
       }
-      setConfirmation("Analyse enregistrée avec succès.");
 
-      setWebhook(
-        statutWebhook.ok
-          ? { ok: true, texte: "Requête envoyée au serveur d'analyse : succès." }
-          : {
-              ok: false,
-              texte: `Échec de l'envoi au serveur d'analyse${
-                statutWebhook.statut ? ` (code ${statutWebhook.statut})` : ""
-              }.`,
-            }
-      );
+      // Succès : réinitialisation du formulaire
+      setChamps({
+        revenusAnnuels: "",
+        epargneDisponible: "",
+        montantCredit: "",
+        mensualiteCredit: "",
+      });
+      setConfirmation("Dossier envoyé avec succès. Analyse en cours…");
+
+      // 3. Déclenchement de la surveillance de la table Supabase
+      demarrerPolling(ligneCreee.id);
     } catch (e) {
-      console.error("Erreur inattendue lors de l'enregistrement :", e);
-      setErreur("Erreur lors de l'enregistrement");
+      console.error("Erreur inattendue lors de la soumission :", e);
+      setErreur("Une erreur est survenue lors de l'envoi.");
     } finally {
-      setChargement(false);
+      setChargementEnvoi(false);
     }
   };
 
@@ -174,7 +309,7 @@ function Index() {
         <section className="rounded-[32px] bg-card p-6 ring-1 ring-black/5 sm:p-8">
           <h2 className="font-display text-2xl font-bold">Votre dossier</h2>
           <p className="mt-1 text-sm text-muted-foreground">
-            Renseignez vos chiffres — tout reste sur votre appareil.
+            Renseignez vos chiffres — vos données sont traitées de manière sécurisée.
           </p>
 
           <form onSubmit={handleSubmit} className="mt-6 grid gap-4">
@@ -222,36 +357,42 @@ function Index() {
               </p>
             )}
 
-            {webhook && (
-              <p
-                role={webhook.ok ? "status" : "alert"}
-                className={`text-sm font-semibold ${webhook.ok ? "text-teal" : "text-destructive"}`}
-              >
-                {webhook.texte}
-              </p>
-            )}
-
             <button
               type="submit"
-              disabled={chargement}
+              disabled={chargementEnvoi || enAttenteIA}
               className="mt-2 inline-flex items-center justify-center gap-2 rounded-full bg-primary px-8 py-4 text-base font-bold text-primary-foreground ring-1 ring-primary/40 transition-transform hover:scale-[1.01] active:scale-[0.99] disabled:cursor-wait disabled:opacity-70"
             >
-              {chargement ? "Analyse en cours…" : "Analyser ma situation"}
+              {chargementEnvoi
+                ? "Envoi du dossier…"
+                : enAttenteIA
+                  ? "Analyse en cours par l'IA…"
+                  : "Analyser ma situation"}
             </button>
             <p className="text-center text-[11px] text-muted-foreground">
-              Vos données sont enregistrées de manière sécurisée pour générer votre analyse.
+              Vos données sont enregistrées dans la base puis analysées par l'IA.
             </p>
           </form>
         </section>
 
         {/* Analyse IA */}
-        <section className="rounded-[32px] bg-dossier p-6 text-dossier-foreground ring-1 ring-black/5 sm:p-8">
-          <div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-[0.2em] text-cream/60">
-            <span className="size-2 rounded-full bg-mustard" aria-hidden />
-            Analyse IA
+        <section className="rounded-[32px] bg-dossier p-6 text-dossier-foreground ring-1 ring-black/5 sm:p-8 flex flex-col">
+          <div className="flex items-center justify-between text-[10px] font-bold uppercase tracking-[0.2em] text-cream/60">
+            <span className="flex items-center gap-2">
+              <span
+                className={`size-2 rounded-full ${enAttenteIA ? "animate-ping bg-coral" : "bg-mustard"}`}
+                aria-hidden
+              />
+              Analyse IA
+            </span>
+            {enAttenteIA && (
+              <span className="text-[10px] text-cream/40 font-mono">
+                actualisation ~3s ({tentativesRestantes * 3}s max)
+              </span>
+            )}
           </div>
 
-          {!analyse && !chargement && !analyseEnCours && (
+          {/* État initial : vide */}
+          {!analyseMarkdown && !enAttenteIA && !messageTimeout && (
             <div className="mt-6 grid flex-1 place-items-center rounded-2xl border border-dashed border-white/15 p-10 text-center">
               <p className="text-sm leading-relaxed text-cream/50">
                 Votre analyse apparaîtra ici.
@@ -261,82 +402,41 @@ function Index() {
             </div>
           )}
 
-          {analyseEnCours && !chargement && (
-            <div className="mt-6 grid flex-1 place-items-center rounded-2xl border border-dashed border-white/15 p-10 text-center">
-              <p className="text-sm leading-relaxed text-cream/50">
-                Demande envoyée au serveur d'analyse : traitement en cours.
-                <br />
-                Le résultat s'affichera ici dès qu'il sera disponible.
+          {/* État en cours : attente de n8n / Gemini */}
+          {enAttenteIA && (
+            <div className="mt-6 flex flex-1 flex-col justify-center rounded-2xl border border-white/10 bg-white/5 p-8 text-center" aria-live="polite">
+              <div className="mx-auto mb-4 size-10 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+              <h3 className="font-display text-base font-bold text-cream">
+                Analyse en cours de génération par l'IA…
+              </h3>
+              <p className="mt-2 text-xs text-cream/60 max-w-sm mx-auto">
+                Gemini traite vos données financières. Le résultat s'affichera automatiquement dès son enregistrement.
+              </p>
+              <div className="mt-6 space-y-2.5 max-w-xs mx-auto w-full">
+                <div className="h-3 w-3/4 animate-pulse rounded-full bg-white/10 mx-auto" />
+                <div className="h-3 w-full animate-pulse rounded-full bg-white/10" />
+                <div className="h-3 w-5/6 animate-pulse rounded-full bg-white/10 mx-auto" />
+              </div>
+            </div>
+          )}
+
+          {/* Délai dépassé (> 2 minutes) */}
+          {messageTimeout && !analyseMarkdown && (
+            <div className="mt-6 rounded-2xl border border-mustard/30 bg-mustard/10 p-6 text-center" role="alert">
+              <p className="text-sm font-medium text-mustard">
+                {messageTimeout}
               </p>
             </div>
           )}
 
-          {chargement && (
-            <div className="mt-6 space-y-3" aria-live="polite">
-              <div className="h-4 w-2/3 animate-pulse rounded-full bg-white/10" />
-              <div className="h-4 w-full animate-pulse rounded-full bg-white/10" />
-              <div className="h-4 w-5/6 animate-pulse rounded-full bg-white/10" />
-              <div className="h-4 w-3/4 animate-pulse rounded-full bg-white/10" />
-            </div>
-          )}
-
-          {analyse && !chargement && (
-            <div aria-live="polite">
-              <div className="mt-4 rounded-2xl bg-white/5 p-5 ring-1 ring-white/10">
-                <h3 className="text-sm font-bold uppercase tracking-wider text-coral">
-                  Résumé de la situation
-                </h3>
-                <p className="mt-2 text-pretty text-sm leading-relaxed text-cream/80">
-                  {analyse.resume}
-                </p>
+          {/* Affichage du résultat final Markdown */}
+          {analyseMarkdown && (
+            <div className="mt-4 flex-1 overflow-y-auto pr-1" aria-live="polite">
+              <div className="rounded-2xl bg-white/5 p-5 ring-1 ring-white/10">
+                <RenduMarkdown contenu={analyseMarkdown} />
               </div>
-
-              <div className="mt-3 rounded-2xl bg-white/5 p-5 ring-1 ring-white/10">
-                <h3 className="text-sm font-bold uppercase tracking-wider text-teal">Points forts</h3>
-                <ul className="mt-2 grid gap-2 text-sm text-cream/80">
-                  {analyse.pointsForts.map((point) => (
-                    <li key={point} className="flex gap-2">
-                      <span className="mt-2 size-1.5 shrink-0 rounded-full bg-teal" aria-hidden />
-                      {point}
-                    </li>
-                  ))}
-                </ul>
-              </div>
-
-              <div className="mt-3 rounded-2xl bg-white/5 p-5 ring-1 ring-white/10">
-                <h3 className="text-sm font-bold uppercase tracking-wider text-mustard">
-                  Points d'attention
-                </h3>
-                <ul className="mt-2 grid gap-2 text-sm text-cream/80">
-                  {analyse.pointsAttention.length === 0 && (
-                    <li className="flex gap-2">Aucun point d'attention identifié pour cette analyse.</li>
-                  )}
-                  {analyse.pointsAttention.map((point) => (
-                    <li key={point} className="flex gap-2">
-                      <span className="mt-2 size-1.5 shrink-0 rounded-full bg-mustard" aria-hidden />
-                      {point}
-                    </li>
-                  ))}
-                </ul>
-              </div>
-
-              <div className="mt-3 rounded-2xl bg-white/5 p-5 ring-1 ring-white/10">
-                <h3 className="text-sm font-bold uppercase tracking-wider text-plum">
-                  Recommandations
-                </h3>
-                <ul className="mt-2 grid gap-2 text-sm text-cream/80">
-                  {analyse.recommandations.map((point) => (
-                    <li key={point} className="flex gap-2">
-                      <span className="mt-2 size-1.5 shrink-0 rounded-full bg-plum" aria-hidden />
-                      {point}
-                    </li>
-                  ))}
-                </ul>
-              </div>
-
-              <p className="mt-5 max-w-[46ch] text-[11px] leading-relaxed text-cream/40">
-                Chaque analyse est enregistrée dans la base de données, puis complétée
-                par l'IA.
+              <p className="mt-4 text-[11px] leading-relaxed text-cream/40">
+                Analyse financière générée par l'IA et enregistrée dans votre base de données.
               </p>
             </div>
           )}
