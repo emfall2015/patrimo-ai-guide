@@ -59,15 +59,15 @@
 :root {
   --radius: 0.625rem;
 
-  /* Brand palette (oklch) */
-  --cream: oklch(0.951 0.021 89);        /* #f6f0e4 */
-  --ink: oklch(0.216 0.021 70);          /* #1c1712 */
-  --coral: oklch(0.652 0.209 31.5);      /* #f0503a */
-  --mustard: oklch(0.817 0.155 82);      /* #f2b21f */
-  --teal: oklch(0.623 0.115 187);        /* #12a08a */
-  --plum: oklch(0.467 0.135 319);        /* #7a3b8f */
+  /* Palette Émeraude & Croissance */
+  --cream: oklch(0.975 0.015 155);        /* #f2fbf6 - Fond lumineux menthe très douce */
+  --ink: oklch(0.22 0.035 210);           /* #15242b - Texte ardoise sombre */
+  --coral: oklch(0.68 0.19 160);          /* #10b981 - Émeraude principale d'action */
+  --mustard: oklch(0.82 0.16 95);         /* Ambre doux pour les points de vigilance */
+  --teal: oklch(0.66 0.16 175);           /* Jade vibrant pour les points forts */
+  --plum: oklch(0.48 0.14 162);           /* Forêt feutré pour les recommandations */
 
-  /* Semantic tokens */
+  /* Jetons sémantiques */
   --background: var(--cream);
   --foreground: var(--ink);
   --card: oklch(1 0 0);
@@ -75,21 +75,21 @@
   --popover: oklch(1 0 0);
   --popover-foreground: var(--ink);
   --primary: var(--coral);
-  --primary-foreground: oklch(0.98 0.01 85);
-  --secondary: oklch(0.92 0.03 89);
+  --primary-foreground: oklch(0.99 0.005 155);
+  --secondary: oklch(0.93 0.025 155);
   --secondary-foreground: var(--ink);
-  --muted: oklch(0.92 0.03 89);
-  --muted-foreground: oklch(0.5 0.02 70);
-  --accent: oklch(0.92 0.03 89);
+  --muted: oklch(0.93 0.025 155);
+  --muted-foreground: oklch(0.48 0.03 210);
+  --accent: oklch(0.93 0.025 155);
   --accent-foreground: var(--ink);
   --destructive: oklch(0.577 0.245 27.325);
   --destructive-foreground: oklch(0.984 0.003 85);
-  --border: oklch(0.216 0.021 70 / 12%);
-  --input: oklch(0.216 0.021 70 / 12%);
+  --border: oklch(0.22 0.035 210 / 12%);
+  --input: oklch(0.22 0.035 210 / 12%);
   --ring: var(--coral);
 
-  /* Dark dossier panel used by the Analyse IA card */
-  --dossier: var(--ink);
+  /* Carte Analyse IA : forêt profond et texte clair */
+  --dossier: oklch(0.25 0.07 162);        /* #064e3b - Vert forêt profond */
   --dossier-foreground: var(--cream);
 }
 
