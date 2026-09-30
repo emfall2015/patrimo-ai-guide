@@ -1,5 +1,12 @@
 # Assistant Patrimoine IA
 
+[![Lovable](https://img.shields.io/badge/Lovable-8B5CF6?style=for-the-badge)](https://lovable.dev/)
+[![n8n](https://img.shields.io/badge/n8n-EA4B71?style=for-the-badge&logo=n8n&logoColor=white)](https://n8n.io/)
+[![Supabase](https://img.shields.io/badge/Supabase-3ECF8E?style=for-the-badge&logo=supabase&logoColor=white)](https://supabase.com/)
+[![Gemini](https://img.shields.io/badge/Gemini-4285F4?style=for-the-badge&logo=google&logoColor=white)](https://ai.google.dev/)
+
+
+
 Application web permettant à un utilisateur de renseigner sa situation financière et son objectif patrimonial afin d'obtenir une **analyse générée par intelligence artificielle**.
 
 > **Projet de démonstration** - L'analyse générée par l'IA est fournie à titre informatif et ne constitue pas un conseil financier personnalisé.
@@ -194,11 +201,14 @@ Cela permet de gérer le traitement de manière **asynchrone**.
 
 ### Analyse IA
 
-![Analyse IA](screenshots/analyse.png)
+![Analyse IA](screenshots/analyse1.png)
 
-### Dashboard
 
-![Dashboard](screenshots/dashboard.png)
+![Analyse IA](screenshots/analyse2.png)
+
+### Historiques des analyses
+
+![historique](screenshots/historique.png)
 
 ---
 
@@ -207,12 +217,12 @@ Cela permet de gérer le traitement de manière **asynchrone**.
 Plusieurs évolutions sont prévues :
 
 * Authentification des utilisateurs
-* Historique des analyses
 * Analyse Gemini retournée au format **JSON structuré**
 * Amélioration de l'interface utilisateur
 * Gestion avancée des erreurs
 * Statuts de traitement : `processing`, `completed`, `error`
 * Sécurisation des données avec les **RLS de Supabase**
+
 
 ---
 
